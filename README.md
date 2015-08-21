@@ -1,2 +1,2 @@
 # MaxSparseLibrary
-Sparse algorithms implemented in MaxJ
+Sparse algorithms implemented in MaxJ, with MaxCompiler.
