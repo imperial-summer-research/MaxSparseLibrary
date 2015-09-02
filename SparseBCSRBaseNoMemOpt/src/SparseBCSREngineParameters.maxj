@@ -8,8 +8,8 @@ public class SparseBCSREngineParameters extends EngineParameters {
 	}
 
 	// declare param names
-	private static final String s_R 	= "R";
-	private static final String s_C 	= "C";
+	private static final String s_R 		= "R";
+	private static final String s_C 		= "C";
 	private static final String s_depth = "ROM";
 	private static final String s_freq 	= "freq";	
 	private static final String s_loop	= "loop";

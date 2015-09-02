@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <string>
 #include <queue>
-#include <map>
 
 // -- C Library
 #include <cstdio>
@@ -24,17 +23,6 @@ typedef float    value_t;
 typedef bool     bool_t;
 typedef double	 value_rom_t;
 
-// IdxValPair Types
-typedef pair<index_t, value_t> iv_pair_t;
-struct iv_arr_t {
-    vector<iv_pair_t> data;
-    int id; // row_id
-    
-};
-bool CmpIdxValArrBySize (const iv_arr_t &p1, const iv_arr_t &p2) { 
-    return p1.data.size() < p2.data.size(); 
-}
-
 class SparseBCSRMatrix {
 public:
     // this constructor only apply those design configure variables.
@@ -45,8 +33,6 @@ public:
     void MakeDense(int m, int n);
     void ConvertToBCSR();
 private:
-
-    // PRIVATE Data
     // design parameters
     int r_, c_, depth_;
     // matrix parameters
@@ -54,28 +40,24 @@ private:
     // matrix data
     index_t *rows_, *cols_;
     value_t *vals_;
-
-    // PRIVATE Method
-    void ConvertCOOToIdxValMatrix(vector<iv_arr_t> &iv_matrix);
 };
 
 int main(int argc, char *argv[]) {
-    int iter = 1;
+    int iter = 100;
     int m, n, nnz, r, c, freq;
-    int depth = SparseBCSR_depth;
     // it's a dense matrix
     r = SparseBCSR_R;
     c = SparseBCSR_C;
-    n = depth;
-    m = 128;
+    n = SparseBCSR_depth;
+    m = n;
     nnz = m * n;
     freq = SparseBCSR_freq;
 
     int loop_length = SparseBCSR_loopLength;
 
-    SparseBCSRMatrix BCSR_matrix(SparseBCSR_R, SparseBCSR_C, SparseBCSR_depth);
-    BCSR_matrix.MakeDense(m, n);
-    BCSR_matrix.ConvertToBCSR();
+    //SparseBCSRMatrix BCSR_matrix(SparseBCSR_R, SparseBCSR_C, SparseBCSR_depth);
+    //BCSR_matrix.MakeDense(m, n);
+    //BCSR_matrix.ConvertToBCSR();
 //
     printf("%4d X %4d block for %4d X %4d matrix\n", r, c, m, n);
     printf("Number of Non zeros:\t%d\n", nnz);
@@ -127,7 +109,7 @@ int main(int argc, char *argv[]) {
             for (int _i = 0; _i < r; _i++) {
                 int _r = i + _i;
                 int _c = j;
-                if (_r < m && _c < (int)index_queues[_r].size())
+                if (_r < m && _c < index_queues[_r].size())
                     is_empty = false; 
             }
             if (is_empty) 
@@ -137,8 +119,8 @@ int main(int argc, char *argv[]) {
                 for (int _i = 0; _i < r; _i ++) {
                     int _r = i + _i;
                     int _c = j + _j;
-                    index_t _index = (_r >= m || _c >= (int)index_queues[_r].size()) ? 0   : index_queues[_r][_c];
-                    value_t _value = (_r >= m || _c >= (int)value_queues[_r].size()) ? 0.0 : value_queues[_r][_c];
+                    index_t _index = (_r >= m || _c >= index_queues[_r].size()) ? 0   : index_queues[_r][_c];
+                    value_t _value = (_r >= m || _c >= value_queues[_r].size()) ? 0.0 : value_queues[_r][_c];
                     index.push_back(_index);
                     value.push_back(_value);
                     pad_nnz ++;
@@ -162,7 +144,7 @@ int main(int argc, char *argv[]) {
     int grp_size = r * pad_num_col * loop_length;
     int num_grp = pad_nnz / grp_size;
     int blk_per_grp = num_blk / num_grp;
-    //int arr_per_grp = num_arr / num_grp;
+    int arr_per_grp = num_arr / num_grp;
 
     printf("Loop length:\t\t %d\n", loop_length);
     printf("Array Size:\t\t %d\n", arr_size);
@@ -212,35 +194,14 @@ int main(int argc, char *argv[]) {
     //copy(index.begin(), index.end(), index_stream);
     //copy(start.begin(), start.end(), start_stream);
 
-    max_file_t *mf = SparseBCSR_init();
-    max_engine_t *me = max_load(mf, "*");
-
-    SparseBCSR_MemInit_actions_t memInit_actions;
-    SparseBCSR_Compute_actions_t compute_actions;
-
-    value_rom_t **roms = (value_rom_t **) &(memInit_actions.inmem_SparseBCSRKernel_ROM00);
-    for (int i = 0; i < r * c / 2; i ++) {
-        roms[i] = (value_rom_t *) malloc(sizeof(value_rom_t) * depth);
-        memcpy(roms[i], rom, sizeof(value_rom_t) * depth);
-    }
-
-    compute_actions.param_length = pad_nnz;
-    compute_actions.instream_index = index_stream;
-    compute_actions.instream_value = value_stream;
-    compute_actions.instream_start = start_stream;
-    compute_actions.outstream_result = output_stream;
-
-    cout << "Setting ROMs ..." << endl;
-    SparseBCSR_MemInit_run(me, &memInit_actions);
-
     cout << "Heating ..." << endl;
-    SparseBCSR_Compute_run(me, &compute_actions);
+    SparseBCSR(pad_nnz, index_stream, start_stream, value_stream, output_stream, rom);
 
     cout << "Running DFE ..." << endl;
     struct timeval t0, t1;
     gettimeofday(&t0, 0);
     for (int i = 0; i < iter; i++)
-        SparseBCSR_Compute_run(me, &compute_actions);
+        SparseBCSR(pad_nnz, index_stream, start_stream, value_stream, output_stream, rom);
     gettimeofday(&t1, 0);
 
     cout << "Finished" << endl; 
@@ -283,47 +244,31 @@ int main(int argc, char *argv[]) {
 }
 
 void SparseBCSRMatrix::MakeDense(int m, int n) {
-    m_ = m, n_ = n, nnz_ = m * n;
-
-    printf("Dense Matrix:\n\t%d X %d = %d\n", m_, n_, nnz_);
-    rows_ = new index_t [nnz_];
-    cols_ = new index_t [nnz_];
-    vals_ = new value_t [nnz_];
-
-    for (int i = 0; i < nnz_; i++) {
-        rows_[i] = i / n_;
-        cols_[i] = i % n_;
-        vals_[i] = (value_t) rand() / RAND_MAX;
-    }
+    //m_ = m, n_ = n, nnz_ = m * n;
+//
+    //printf("Dense Matrix:\n\t%d X %d = %d\n", m_, n_, nnz_);
+    //rows_ = new index_t [nnz_];
+    //cols_ = new index_t [nnz_];
+    //vals_ = new value_t [nnz_];
+//
+    //for (int i = 0; i < nnz_; i++) {
+    //    rows_[i] = i / n_;
+    //    cols_[i] = i % n_;
+    //    vals_[i] = (value_t) rand() / RAND_MAX;
+    //}
 }
 
-void SparseBCSRMatrix::ConvertCOOToIdxValMatrix(vector<iv_arr_t> &iv_matrix) {
-    iv_matrix.resize(m_);
-    // assign the row id
-    for (int i = 0; i < m_; i++)
-        iv_matrix[i].id = i;
-    for (int i = 0; i < nnz_; i++) 
-        iv_matrix[rows_[i]].data.push_back(make_pair(cols_[i], vals_[i]));
-
-    int max_row_nnz = 0;
-    int min_row_nnz = (int)iv_matrix[0].data.size();
-    double avg_row_nnz = 0.0;
-    for (int i = 0; i < m_; i++) {
-        max_row_nnz = max((int) iv_matrix[i].data.size(), max_row_nnz);
-        min_row_nnz = min((int) iv_matrix[i].data.size(), min_row_nnz);
-        avg_row_nnz += iv_matrix[i].data.size();
-    }
-    avg_row_nnz /= m_;
-    printf("Transformed to IdxVal Matrix \n");
-    printf("Number of Rows:\t %d\n",    iv_matrix.size());
-    printf("Max NNZ Size:\t %d\n",      max_row_nnz);
-    printf("Min NNZ Size:\t %d\n",      min_row_nnz);
-    printf("Avg NNZ Size:\t %.2f\n",    avg_row_nnz);
-
-    // sorting 
-    printf("Sorting ...\n");
-    sort(iv_matrix.begin(), iv_matrix.end(), CmpIdxValArrBySize);
-
+void SparseBCSRMatrix::ConvertToBCSR() {
+    // BCSR format: 
+    // param{index}: matrix element's column index
+    // param{value}: matrix element's value
+    // param{input}: vector value input
+    //vector< vector<index_t> > index_queues(m_, vector<index_t>(0));
+    //vector< vector<value_t> > value_queues(m_, vector<value_t>(0));
+    //for (int i = 0; i < nnz_; i++) {
+    //    index_queues[rows_[i]].push_back(col_[i]);
+    //    value_queues[rows_[i]].push_back(val_[i]);
+    //}
     //printf("Transformed to intermediate queues\n");
     //vector<index_t> index;
     //vector<value_t> value;
@@ -367,10 +312,4 @@ void SparseBCSRMatrix::ConvertCOOToIdxValMatrix(vector<iv_arr_t> &iv_matrix) {
     //        }
     //    }
     //}
-}
-
-void SparseBCSRMatrix::ConvertToBCSR() {
-    vector<iv_arr_t> iv_matrix;
-
-    ConvertCOOToIdxValMatrix(iv_matrix);
 }

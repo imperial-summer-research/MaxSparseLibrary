@@ -9,7 +9,6 @@ import com.maxeler.maxcompiler.v2.managers.BuildConfig.Effort;
 import com.maxeler.maxcompiler.v2.managers.BuildConfig.OptimizationTechnique;
 import com.maxeler.maxcompiler.v2.managers.engine_interfaces.CPUTypes;
 import com.maxeler.maxcompiler.v2.managers.engine_interfaces.EngineInterface;
-import com.maxeler.maxcompiler.v2.managers.engine_interfaces.EngineInterface.Direction;
 import com.maxeler.maxcompiler.v2.managers.engine_interfaces.InterfaceParam;
 
 class SparseBCSRManager extends CustomManager {
@@ -40,33 +39,17 @@ class SparseBCSRManager extends CustomManager {
         k.getInput("start") <== startStream;
         resultStream        <== k.getOutput("result");
 
-        createSLiCinterface(memInitInterface());
-        createSLiCinterface(computeInterface(params.getR(), params.getC()));
+        createSLiCinterface(modeDefault(params.getR(), params.getC(), params.getLoop()));
 
         //configBuild(params);
     }
 
-    private EngineInterface memInitInterface() {
-        EngineInterface ei = new EngineInterface("MemInit");
-
-        // there'll be zero tick for this kernel
-        ei.setTicks(s_kernelName, 0);
-        ei.ignoreStream("index");
-        ei.ignoreStream("value");
-        ei.ignoreStream("start");
-        ei.ignoreStream("result");
-
-        return ei;
-    }
-
-    private EngineInterface computeInterface(int R, int C) {
-        EngineInterface ei = new EngineInterface("Compute");
+    private EngineInterface modeDefault(int R, int C, int loopLength) {
+        EngineInterface ei = new EngineInterface();
 
         InterfaceParam length = ei.addParam("length", CPUTypes.INT);
         InterfaceParam lengthInBytes = length * CPUTypes.FLOAT.sizeInBytes();
 
-        for (int i = 0; i < R * C / 2; i++)
-            ei.ignoreMem(s_kernelName, String.format("ROM%02d", i), Direction.IN);
         ei.setTicks(s_kernelName, length / (R * C));
         ei.setStream("index",   CPUTypes.UINT32,  lengthInBytes);
         ei.setStream("value",   CPUTypes.FLOAT,   lengthInBytes);

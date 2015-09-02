@@ -22,6 +22,8 @@ class SparseBCSRKernel extends Kernel {
         
         // MEMORY: here I'll set single one ROM, and let MaxCompiler decide how to stack them
         DFEType addrT       = dfeUInt(MathUtils.bitsToAddress(depth));
+        Memory<DFEVar> ROM  = mem.alloc(valueT, depth);
+        ROM.mapToCPU("ROM");
 
         // COUNTER:
         CounterChain chain  = control.count.makeCounterChain();
@@ -39,21 +41,12 @@ class SparseBCSRKernel extends Kernel {
         DFEVector<DFEVar> carry = mRowT.newInstance(this);
         DFEVector<DFEVar> sum   = mRowT.newInstance(this);
 
-        // for each row i in the R X C block
         for (int i = 0; i < R; i ++) {
-            // read a vector from ROM
             DFEVector<DFEVar> array = mColT.newInstance(this);
-            for (int j = 0; j < C/2; j++) {
-                // for each 2 elements, there'll be a ROM for them
-                Memory<DFEVar> ROM  = mem.alloc(valueT, depth);
-                ROM.mapToCPU(String.format("ROM%02d", i*C/2+j));
-                // ROM read
-                for (int k = 0; k < 2; k++) {
-                    int idx = j*2+k;
-                    DFEVar input = ROM.read(index[idx*R + i].cast(addrT));
-                    // here will be 2 * C DSPs
-                    array[idx] <== value[idx*R + i] * input;
-                }
+            for (int j = 0; j < C; j++) {
+                DFEVar input = ROM.read(index[j*R + i].cast(addrT));
+                // here will be 2 * C DSPs
+                array[j] <== value[j*R + i] * input;
             }
 
             DFEVar tmpSum = start === 1 ? 0.0 : carry[i];
