@@ -1,0 +1,68 @@
+
+
+import com.maxeler.maxcompiler.v0.utils.MathUtils;
+import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelParameters;
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelConfiguration;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.CounterChain;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.core.Stream.OffsetExpr;
+import com.maxeler.maxcompiler.v2.kernelcompiler.stdlib.memory.Memory;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVector;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEVectorType;
+
+class SparseBCSRKernel extends Kernel {
+
+    private static DFEType valueT = dfeFloat(8, 24);
+    private static DFEType indexT = dfeUInt(32);
+    
+    SparseBCSRKernel(KernelParameters parameters, int R, int C, int depth, int loopLength) {
+        super(parameters);
+        
+        // MEMORY: here I'll set single one ROM, and let MaxCompiler decide how to stack them
+        DFEType addrT       = dfeUInt(MathUtils.bitsToAddress(depth));
+        Memory<DFEVar> ROM  = mem.alloc(valueT, depth);
+        ROM.mapToCPU("ROM");
+
+        // COUNTER:
+        CounterChain chain  = control.count.makeCounterChain();
+        chain.addCounter(loopLength, 1);
+
+        // m prefix means multi-; 
+        DFEVectorType<DFEVar> mColT   = new DFEVectorType<DFEVar>(valueT,     C);
+        DFEVectorType<DFEVar> mRowT   = new DFEVectorType<DFEVar>(valueT,     R);
+        DFEVectorType<DFEVar> mIndexT = new DFEVectorType<DFEVar>(indexT, R * C);
+        DFEVectorType<DFEVar> mValueT = new DFEVectorType<DFEVar>(valueT, R * C);
+
+        DFEVar start            = io.input("start",  indexT);
+        DFEVector<DFEVar> index = io.input("index", mIndexT);
+        DFEVector<DFEVar> value = io.input("value", mValueT);
+        DFEVector<DFEVar> carry = mRowT.newInstance(this);
+        DFEVector<DFEVar> sum   = mRowT.newInstance(this);
+
+        for (int i = 0; i < R; i ++) {
+            DFEVector<DFEVar> array = mColT.newInstance(this);
+            for (int j = 0; j < C; j++) {
+                DFEVar input = ROM.read(index[j*R + i].cast(addrT));
+                // here will be 2 * C DSPs
+                array[j] <== value[j*R + i] * input;
+            }
+
+            DFEVar tmpSum = start === 1 ? 0.0 : carry[i];
+            sum[i]   <== summationTree(array, 0, C-1) + tmpSum;
+            carry[i] <== stream.offset(sum[i], -loopLength);
+        }
+        io.output("result", sum, mRowT);
+    }
+
+    DFEVar summationTree(DFEVector<DFEVar> s, int l, int r) {
+        if (l == r) 
+            return s[l];
+        int m = l + (r-l)/2;
+        return 
+            summationTree(s, l  , m) + 
+            summationTree(s, m+1, r);
+    }
+}
+

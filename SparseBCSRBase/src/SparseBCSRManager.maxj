@@ -1,0 +1,74 @@
+
+
+import com.maxeler.maxcompiler.v2.build.EngineParameters;
+import com.maxeler.maxcompiler.v2.managers.custom.CustomManager;
+import com.maxeler.maxcompiler.v2.managers.custom.DFELink;
+import com.maxeler.maxcompiler.v2.managers.custom.blocks.KernelBlock;
+import com.maxeler.maxcompiler.v2.managers.BuildConfig;
+import com.maxeler.maxcompiler.v2.managers.BuildConfig.Effort;
+import com.maxeler.maxcompiler.v2.managers.BuildConfig.OptimizationTechnique;
+import com.maxeler.maxcompiler.v2.managers.engine_interfaces.CPUTypes;
+import com.maxeler.maxcompiler.v2.managers.engine_interfaces.EngineInterface;
+import com.maxeler.maxcompiler.v2.managers.engine_interfaces.InterfaceParam;
+
+class SparseBCSRManager extends CustomManager {
+
+    private static final String s_kernelName = "SparseBCSRKernel";
+
+    SparseBCSRManager(SparseBCSREngineParameters params) {
+        super(params);
+    
+        KernelBlock k = addKernel(
+            new SparseBCSRKernel(makeKernelParameters(s_kernelName), 
+                                    params.getR(), 
+                                    params.getC(),
+                                    params.getDepth(),
+                                    params.getLoop())
+            );
+
+        config.setDefaultStreamClockFrequency(params.getFreq());
+        // --- DFELinks --- 
+        DFELink indexStream = addStreamFromCPU("index");
+        DFELink valueStream = addStreamFromCPU("value");
+        DFELink startStream = addStreamFromCPU("start");
+        DFELink resultStream = addStreamToCPU("result");
+
+        //// --- Connect DFELinks to kernel block ---
+        k.getInput("index") <== indexStream;
+        k.getInput("value") <== valueStream;
+        k.getInput("start") <== startStream;
+        resultStream        <== k.getOutput("result");
+
+        createSLiCinterface(modeDefault(params.getR(), params.getC(), params.getLoop()));
+
+        //configBuild(params);
+    }
+
+    private EngineInterface modeDefault(int R, int C, int loopLength) {
+        EngineInterface ei = new EngineInterface();
+
+        InterfaceParam length = ei.addParam("length", CPUTypes.INT);
+        InterfaceParam lengthInBytes = length * CPUTypes.FLOAT.sizeInBytes();
+
+        ei.setTicks(s_kernelName, length / (R * C));
+        ei.setStream("index",   CPUTypes.UINT32,  lengthInBytes);
+        ei.setStream("value",   CPUTypes.FLOAT,   lengthInBytes);
+        ei.setStream("start",   CPUTypes.UINT32,  lengthInBytes / (R * C));
+        ei.setStream("result",  CPUTypes.FLOAT,   lengthInBytes / C);
+
+        return ei;
+    }
+
+    public static void main(String[] args) {
+        SparseBCSREngineParameters params = new SparseBCSREngineParameters(args);
+        SparseBCSRManager manager = new SparseBCSRManager(params);
+        
+        manager.addMaxFileConstant("R", params.getR());
+        manager.addMaxFileConstant("C", params.getC());
+        manager.addMaxFileConstant("depth", params.getDepth());
+        manager.addMaxFileConstant("freq", params.getFreq());
+        manager.addMaxFileConstant("loopLength", params.getLoop());
+        manager.build();
+    }
+}
+
