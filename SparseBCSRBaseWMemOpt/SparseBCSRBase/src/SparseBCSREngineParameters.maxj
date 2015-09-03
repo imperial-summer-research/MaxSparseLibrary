@@ -1,0 +1,40 @@
+
+import com.maxeler.maxcompiler.v2.build.EngineParameters;
+
+public class SparseBCSREngineParameters extends EngineParameters {
+
+	public SparseBCSREngineParameters(String [] args) {
+		super(args);
+	}
+
+	// declare param names
+	private static final String s_R 	= "R";
+	private static final String s_C 	= "C";
+	private static final String s_depth = "ROM";
+	private static final String s_freq 	= "freq";	
+	private static final String s_loop	= "loop";
+
+	// declare params
+	@Override
+	protected void declarations() {
+		declareParam(s_R, 		DataType.INT, 	 4);
+		declareParam(s_C, 		DataType.INT, 	 4);
+		declareParam(s_depth,	DataType.INT, 8192);
+		declareParam(s_freq, 	DataType.INT,  100);
+		declareParam(s_loop, 	DataType.INT,   16);
+	}
+
+	public int getR() 		{ return getParam(s_R); }
+	public int getC() 		{ return getParam(s_C); }
+	public int getDepth() { return getParam(s_depth); }
+	public int getFreq() 	{ return getParam(s_freq); }
+	public int getLoop() 	{ return getParam(s_loop); }
+
+	@Override
+	public String getBuildName() {
+		return 
+			String.format("%s_%s_%s_R_%03d_C_%03d_L_%02d_ROM_%4d_freq_%03dMHz", 
+				getMaxFileName(), getDFEModel(), getTarget(),
+				getR(), getC(), getLoop(), getDepth(), getFreq());
+	}
+}

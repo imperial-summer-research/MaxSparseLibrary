@@ -16,7 +16,6 @@ class SparseBCSRKernel extends Kernel {
 
     private static DFEType valueT = dfeFloat(8, 24);
     private static DFEType indexT = dfeUInt(32);
-    private static DFEType byteT  = dfeUInt(8);
     
     SparseBCSRKernel(KernelParameters parameters, int R, int C, int depth, int loopLength) {
         super(parameters);
@@ -34,7 +33,7 @@ class SparseBCSRKernel extends Kernel {
         DFEVectorType<DFEVar> mIndexT = new DFEVectorType<DFEVar>(indexT, R * C);
         DFEVectorType<DFEVar> mValueT = new DFEVectorType<DFEVar>(valueT, R * C);
 
-        DFEVar clrwr            = io.input("clrwr",   byteT);
+        DFEVar start            = io.input("start",  indexT);
         DFEVector<DFEVar> index = io.input("index", mIndexT);
         DFEVector<DFEVar> value = io.input("value", mValueT);
         DFEVector<DFEVar> carry = mRowT.newInstance(this);
@@ -57,13 +56,11 @@ class SparseBCSRKernel extends Kernel {
                 }
             }
 
-            // will refresh if clear signal equals 1
-            DFEVar tmpSum = (clrwr & 1) !== 0 ? 0.0 : carry[i];
+            DFEVar tmpSum = start === 1 ? 0.0 : carry[i];
             sum[i]   <== summationTree(array, 0, C-1) + tmpSum;
             carry[i] <== stream.offset(sum[i], -loopLength);
         }
-        // will give output only write signal equals 1
-        io.output("result", sum, mRowT, (clrwr & 2) !== 0);
+        io.output("result", sum, mRowT);
     }
 
     DFEVar summationTree(DFEVector<DFEVar> s, int l, int r) {

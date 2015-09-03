@@ -20,7 +20,6 @@
 using namespace std;
 
 typedef uint32_t index_t;
-typedef uint8_t  byte_t;
 typedef float    value_t;
 typedef bool     bool_t;
 typedef double	 value_rom_t;
@@ -107,7 +106,7 @@ int main(int argc, char *argv[]) {
     printf("Transformed to intermediate queues\n");
     vector<index_t> index;
     vector<value_t> value;
-    vector<byte_t>  clrwr;
+    vector<index_t> start;
     // padding
     long long pad_num_row = ceil((double)m/r) * r;
     long long pad_num_col = ceil((double)n/c) * c;
@@ -123,8 +122,7 @@ int main(int argc, char *argv[]) {
     // generalized iteration
     for (int i = 0; i < pad_num_row; i += r) {
         for (int j = 0; j < pad_num_col; j += c) {
-            clrwr.push_back(j==0);
-            // check out whether there's no more block in this group
+            start.push_back((j == 0));
             bool is_empty = true;
             for (int _i = 0; _i < r; _i++) {
                 int _r = i + _i;
@@ -132,13 +130,8 @@ int main(int argc, char *argv[]) {
                 if (_r < m && _c < (int)index_queues[_r].size())
                     is_empty = false; 
             }
-            if (is_empty) { 
-                // if it's empty, then the last block should let device write.
-                //int last_blk_id = clrwr.size() - 1;
-                //cout << last_blk_id << endl;
-                //clrwr[last_blk_id] |= 2; // assign write signal
+            if (is_empty) 
                 break;
-            }
             // for each block
             for (int _j = 0; _j < c; _j ++) {
                 for (int _i = 0; _i < r; _i ++) {
@@ -152,34 +145,24 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
-        // do it again for the last block
-        int last_blk_id = clrwr.size() - 1;
-        clrwr[last_blk_id] |= 2; // assign write signal
     }
-   
-
-    // several parameters
-    int blk_size    = r * c;
-    int num_blk     = pad_nnz / blk_size;
-    int arr_size    = r * pad_num_col;
-    int num_arr     = pad_nnz / arr_size;
-    int blk_per_arr = num_blk / num_arr;
-    int grp_size    = r * pad_num_col * loop_length;
-    int num_grp     = pad_nnz / grp_size;
-    int blk_per_grp = num_blk / num_grp;
-    //int arr_per_grp = num_arr / num_grp;
-
-    //for (int i = 0; i < num_blk; i++)
-    //    printf("[%4d] CLR %d WR %d\n", i, clrwr[i]&1, (clrwr[i]>>1)&1);
-
 
     // reorder to CSlow sequence
-    value_t *value_stream   = (value_t *) malloc(sizeof(value_t) * pad_nnz);
-    index_t *index_stream   = (index_t *) malloc(sizeof(index_t) * pad_nnz);
-    byte_t  *clrwr_stream   = (byte_t *)  malloc(sizeof(byte_t)  * pad_nnz / (r * c));
-    // value_t *output_stream  = (value_t *) malloc(sizeof(value_t) * pad_nnz / c);
+    value_t *value_stream = (value_t *) malloc(sizeof(value_t) * pad_nnz);
+    index_t *index_stream = (index_t *) malloc(sizeof(index_t) * pad_nnz);
+    index_t *start_stream = (index_t *) malloc(sizeof(index_t) * pad_nnz / (r * c));
+    value_t *output_stream = (value_t *) malloc(sizeof(value_t) * pad_nnz / c);
 
-    
+    // several parameters
+    int blk_size = r * c;
+    int num_blk = pad_nnz / blk_size;
+    int arr_size = r * pad_num_col;
+    int num_arr = pad_nnz / arr_size;
+    int blk_per_arr = num_blk / num_arr;
+    int grp_size = r * pad_num_col * loop_length;
+    int num_grp = pad_nnz / grp_size;
+    int blk_per_grp = num_blk / num_grp;
+    //int arr_per_grp = num_arr / num_grp;
 
     printf("Loop length:\t\t %d\n", loop_length);
     printf("Array Size:\t\t %d\n", arr_size);
@@ -189,12 +172,12 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < num_grp; i++) {
         for (int j = 0; j < blk_per_arr; j++) {
             for (int k = 0; k < loop_length; k++) {
-                int old_blk_id   = i * blk_per_grp + k * blk_per_arr + j;
-                int new_blk_id   = i * blk_per_grp + j * loop_length + k;
+                int old_blk_id = i * blk_per_grp + k * blk_per_arr + j;
+                int new_blk_id = i * blk_per_grp + j * loop_length + k;
                 int new_start_id = new_blk_id * blk_size;
                 int old_start_id = old_blk_id * blk_size;
                 
-                clrwr_stream[new_blk_id] = clrwr[old_blk_id];
+                start_stream[new_blk_id] = start[old_blk_id];
                 for (int y = 0; y < c; y++)
                     for (int x = 0; x < r; x++) {
                         int new_id = new_start_id + y * r + x;
@@ -207,7 +190,7 @@ int main(int argc, char *argv[]) {
     }
 
     //for (int i = 0; i < num_blk; i++)
-    //    printf("clrwr[%3d] = %d\n", i, clrwr_stream[i]);
+    //    printf("start[%3d] = %d\n", i, start_stream[i]);
 
     float num_fp_ops = 0;
     num_fp_ops += 1; // multiplier for each nnz
@@ -227,7 +210,7 @@ int main(int argc, char *argv[]) {
 
     //copy(value.begin(), value.end(), value_stream);
     //copy(index.begin(), index.end(), index_stream);
-    //copy(clrwr.begin(), clrwr.end(), clrwr_stream);
+    //copy(start.begin(), start.end(), start_stream);
 
     max_file_t *mf = SparseBCSR_init();
     max_engine_t *me = max_load(mf, "*");
@@ -241,12 +224,11 @@ int main(int argc, char *argv[]) {
         memcpy(roms[i], rom, sizeof(value_rom_t) * depth);
     }
 
-    compute_actions.param_length    = pad_nnz;
-    compute_actions.param_numrow    = pad_num_row;
-    compute_actions.instream_index  = index_stream;
-    compute_actions.instream_value  = value_stream;
-    compute_actions.instream_clrwr  = clrwr_stream;
-    compute_actions.outstream_result= res;
+    compute_actions.param_length = pad_nnz;
+    compute_actions.instream_index = index_stream;
+    compute_actions.instream_value = value_stream;
+    compute_actions.instream_start = start_stream;
+    compute_actions.outstream_result = output_stream;
 
     cout << "Setting ROMs ..." << endl;
     SparseBCSR_MemInit_run(me, &memInit_actions);
@@ -272,30 +254,28 @@ int main(int argc, char *argv[]) {
         1 / (duration / num_blk) / 1e6,
         (8 * nnz + 4 * num_blk) / duration / 1e6);
 
-    //for (int i = 0; i < num_grp; i++) {
-    //    for (int j = 0; j < loop_length; j++) {
-    //        for (int k = 0; k < r; k++) {
-    //            int row = i * r * loop_length + j * r + k;
-    //            int end_blk_id = i * blk_per_grp + blk_per_grp - loop_length + j;
-    //            int idx = end_blk_id * r + k;
-    //            //printf("row: %d idx: %d\n", row, idx);
-    //            res[row] = output_stream[idx];
-    //        }
-    //    }
-    //}
+    for (int i = 0; i < num_grp; i++) {
+        for (int j = 0; j < loop_length; j++) {
+            for (int k = 0; k < r; k++) {
+                int row = i * r * loop_length + j * r + k;
+                int end_blk_id = i * blk_per_grp + blk_per_grp - loop_length + j;
+                int idx = end_blk_id * r + k;
+                //printf("row: %d idx: %d\n", row, idx);
+                res[row] = output_stream[idx];
+            }
+        }
+    }
     
     value_t *expected = (value_t *) malloc(sizeof(value_t) * m);
     memset(expected, 0, sizeof(value_t) * m);
     for (int i = 0; i < nnz; i++)
         expected[row[i]] += val[i] * vec[col[i]];
 
-    for (int i = 0; i < m; i++) {
-        //printf("result[%3d] = %.6f\n", i, res[i]);
+    for (int i = 0; i < m; i++)
         if (abs(res[i]-expected[i])/expected[i] > 1e-4) {
             printf("ERROR: [%6d] %15.6f %15.6f\n", i, res[i], expected[i]);
             exit(1);
         }
-    }
 
     printf("OK!\n");
     
@@ -347,7 +327,7 @@ void SparseBCSRMatrix::ConvertCOOToIdxValMatrix(vector<iv_arr_t> &iv_matrix) {
     //printf("Transformed to intermediate queues\n");
     //vector<index_t> index;
     //vector<value_t> value;
-    //vector<index_t> clrwr;
+    //vector<index_t> start;
     //// padding
     //long long pad_num_row = ceil((double)m/r) * r;
     //long long pad_num_col = ceil((double)n/c) * c;
@@ -363,7 +343,7 @@ void SparseBCSRMatrix::ConvertCOOToIdxValMatrix(vector<iv_arr_t> &iv_matrix) {
     //// generalized iteration
     //for (int i = 0; i < pad_num_row; i += r) {
     //    for (int j = 0; j < pad_num_col; j += c) {
-    //        clrwr.push_back((j == 0));
+    //        start.push_back((j == 0));
     //        bool is_empty = true;
     //        for (int _i = 0; _i < r; _i++) {
     //            int _r = i + _i;

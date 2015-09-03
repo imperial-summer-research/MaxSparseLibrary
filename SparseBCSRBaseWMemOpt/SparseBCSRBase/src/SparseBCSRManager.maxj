@@ -31,13 +31,13 @@ class SparseBCSRManager extends CustomManager {
         // --- DFELinks --- 
         DFELink indexStream = addStreamFromCPU("index");
         DFELink valueStream = addStreamFromCPU("value");
-        DFELink clrwrStream = addStreamFromCPU("clrwr");
+        DFELink startStream = addStreamFromCPU("start");
         DFELink resultStream = addStreamToCPU("result");
 
         //// --- Connect DFELinks to kernel block ---
         k.getInput("index") <== indexStream;
         k.getInput("value") <== valueStream;
-        k.getInput("clrwr") <== clrwrStream;
+        k.getInput("start") <== startStream;
         resultStream        <== k.getOutput("result");
 
         createSLiCinterface(memInitInterface());
@@ -53,7 +53,7 @@ class SparseBCSRManager extends CustomManager {
         ei.setTicks(s_kernelName, 0);
         ei.ignoreStream("index");
         ei.ignoreStream("value");
-        ei.ignoreStream("clrwr");
+        ei.ignoreStream("start");
         ei.ignoreStream("result");
 
         return ei;
@@ -64,15 +64,14 @@ class SparseBCSRManager extends CustomManager {
 
         InterfaceParam length = ei.addParam("length", CPUTypes.INT);
         InterfaceParam lengthInBytes = length * CPUTypes.FLOAT.sizeInBytes();
-        InterfaceParam numrow = ei.addParam("numrow", CPUTypes.INT);
 
         for (int i = 0; i < R * C / 2; i++)
             ei.ignoreMem(s_kernelName, String.format("ROM%02d", i), Direction.IN);
         ei.setTicks(s_kernelName, length / (R * C));
         ei.setStream("index",   CPUTypes.UINT32,  lengthInBytes);
         ei.setStream("value",   CPUTypes.FLOAT,   lengthInBytes);
-        ei.setStream("clrwr",   CPUTypes.UINT8,   lengthInBytes / (R * C) / 4); // just need 1/4 of original byte size(1)
-        ei.setStream("result",  CPUTypes.FLOAT,   numrow * CPUTypes.FLOAT.sizeInBytes());
+        ei.setStream("start",   CPUTypes.UINT32,  lengthInBytes / (R * C));
+        ei.setStream("result",  CPUTypes.FLOAT,   lengthInBytes / C);
 
         return ei;
     }
